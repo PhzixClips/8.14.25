@@ -648,48 +648,6 @@ class MainWindow:
             dialog.bind('<Return>', lambda e: on_save())
             dialog.bind('<Escape>', lambda e: dialog.destroy())
 
-            # --- Context Menu ---
-            folder_menu = tk.Menu(dialog, tearoff=0, bg=COLORS.get('bg_secondary'), fg=COLORS.get('fg_primary'))
-            def rename_folder():
-                if not listbox.curselection(): return
-                old_name = folders[listbox.curselection()[0]]
-                new_name = simpledialog.askstring("Rename Folder", f"Enter new name for '{old_name}':", parent=dialog)
-                if new_name and new_name.strip() and new_name != old_name:
-                    if self.winners_manager.rename_folder(old_name, new_name.strip()):
-                        nonlocal folders
-                        folders = self.winners_manager.get_all_folders()
-                        populate_listbox(select_item=new_name.strip())
-                    else:
-                        messagebox.showerror("Error", "Folder name already exists or is invalid.", parent=dialog)
-
-            def delete_folder():
-                if not listbox.curselection(): return
-                name = folders[listbox.curselection()[0]]
-                if messagebox.askyesno("Delete Folder", f"Are you sure you want to delete '{name}'?\n(Videos inside will be moved to Default)", parent=dialog):
-                    if self.winners_manager.remove_folder(name):
-                        nonlocal folders
-                        folders = self.winners_manager.get_all_folders()
-                        listbox.selection_clear(0, tk.END)
-                        populate_listbox()
-                        update_save_button_state()
-                    else:
-                        messagebox.showerror("Error", "Failed to delete folder.", parent=dialog)
-
-            folder_menu.add_command(label="Rename", command=rename_folder)
-            folder_menu.add_command(label="Delete", command=delete_folder)
-
-            def show_folder_menu(event):
-                idx = listbox.nearest(event.y)
-                if idx != -1:
-                    listbox.select_clear(0, tk.END)
-                    listbox.select_set(idx)
-                    is_default = folders[idx] == "Default"
-                    folder_menu.entryconfig("Rename", state="disabled" if is_default else "normal")
-                    folder_menu.entryconfig("Delete", state="disabled" if is_default else "normal")
-                    folder_menu.tk_popup(event.x_root, event.y_root)
-
-            listbox.bind("<Button-3>", show_folder_menu)
-
             # --- Final layout ---
             new_folder_button = ttk.Button(button_frame, text='New Folder', command=on_new_folder)
             cancel_button = ttk.Button(button_frame, text='Cancel', command=dialog.destroy)
