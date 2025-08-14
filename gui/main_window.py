@@ -62,6 +62,11 @@ class MainWindow:
         # --- Widget references for dynamic updates ---
         self.url_label = None
         self.url_entry = None
+
+        # Search & Filter Frames
+        self.search_controls_frame = None
+        self.winners_filter_frame = None
+
         self.query_label = None
         self.query_entry = None
         self.uploaded_label = None
@@ -73,6 +78,11 @@ class MainWindow:
         self.max_duration_label = None
         self.max_duration_entry = None
         self.generate_button = None
+
+        # Winners Filter Widgets
+        self.folder_filter_label = None
+        self.folder_filter_combo = None
+
         self.action_buttons = {}
         self.winners_counter_label = None
         self.tab_counter_label = None
@@ -99,6 +109,7 @@ class MainWindow:
         # Create main components
         self._create_url_input()
         self._create_search_controls()
+        self._create_winners_filter_controls()  # Add this
         self._create_tab_system()
         self._create_action_buttons()
         self._create_status_bar()
@@ -108,6 +119,7 @@ class MainWindow:
 
         # Initialize Winners tab and load data
         self._initialize_winners_tab()
+        self._update_folder_filter_options()
 
         # Initial results tab
         self.tab_manager.add_new_tab("Search Results")
@@ -202,6 +214,10 @@ class MainWindow:
         if self.max_duration_entry: self.max_duration_entry.config(font=font_sm)
         if self.generate_button: self.generate_button.config(font=font_base_bold)
 
+        # Winners Filter
+        if hasattr(self, 'folder_filter_label') and self.folder_filter_label:
+            self.folder_filter_label.config(font=font_sm)
+
         # Action Buttons
         for text, button in self.action_buttons.items():
             is_winner_btn = text.startswith('🏆')
@@ -235,8 +251,9 @@ class MainWindow:
     # Search controls row
     # -----------------------------
     def _create_search_controls(self):
-        frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
-        frame.pack(fill='x', padx=10, pady=4)
+        self.search_controls_frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
+        self.search_controls_frame.pack(fill='x', padx=10, pady=4)
+        frame = self.search_controls_frame
 
         self.query_label = tk.Label(frame, text='Search:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.query_label.pack(side='left')
@@ -268,13 +285,29 @@ class MainWindow:
         self.generate_button = tk.Button(frame, text='Generate', bg=COLORS.get('success', 'green'), fg=COLORS.get('fg_on_accent', '#ffffff'), command=self._start_search)
         self.generate_button.pack(side='left', padx=10)
 
+    def _create_winners_filter_controls(self):
+        """Creates the dropdown for filtering winners by folder."""
+        self.winners_filter_frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
+
+        self.folder_filter_label = tk.Label(self.winners_filter_frame, text='Filter by Folder:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
+        self.folder_filter_label.pack(side='left', padx=(10, 0))
+
+        self.folder_filter_combo = ttk.Combobox(self.winners_filter_frame, values=['All'], width=20, state="readonly")
+        self.folder_filter_combo.set('All')
+        self.folder_filter_combo.pack(side='left', padx=6)
+        self.folder_filter_combo.bind('<<ComboboxSelected>>', self._on_folder_filter_changed)
+
+        # Initially hidden
+        self.winners_filter_frame.pack(fill='x', padx=10, pady=4)
+        self.winners_filter_frame.pack_forget()
+
     # -----------------------------
     # Tabs + results table
     # -----------------------------
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self.root, self.tree_container)
+        self.tab_manager = TabManager(self.root, self.tree_container, on_tab_switch_callback=self._on_tab_switched)
 
     # -----------------------------
     # Bottom action buttons
@@ -333,6 +366,45 @@ class MainWindow:
         # A restart is still recommended for theme changes to be perfect
         messagebox.showinfo("Settings Updated", "Live settings applied. A restart is recommended for all changes to take full effect.", parent=self.root)
         self._apply_live_settings()
+
+    def _on_folder_filter_changed(self, event=None):
+        """Callback for when the folder filter dropdown changes."""
+        selected_folder = self.folder_filter_combo.get()
+        winners_tab = self.tab_manager.get_winners_tab()
+        if not winners_tab:
+            return
+
+        self.tab_manager.clear_tab_results(winners_tab.tab_id)
+
+        if selected_folder == "All":
+            winners_to_display = self.winners_manager.winners
+        else:
+            winners_to_display = self.winners_manager.get_winners_by_folder(selected_folder)
+
+        for winner in winners_to_display:
+            self.tab_manager.add_winner_to_tab(winner.to_dict())
+
+    def _on_tab_switched(self, tab_id: str):
+        """Callback for when the active tab changes."""
+        is_winners = tab_id == self.tab_manager.winners_tab_id
+        if is_winners:
+            if self.search_controls_frame:
+                self.search_controls_frame.pack_forget()
+            if self.winners_filter_frame:
+                self.winners_filter_frame.pack(fill='x', padx=10, pady=4)
+        else:
+            if self.winners_filter_frame:
+                self.winners_filter_frame.pack_forget()
+            if self.search_controls_frame:
+                self.search_controls_frame.pack(fill='x', padx=10, pady=4)
+
+    def _update_folder_filter_options(self):
+        """Updates the folder filter dropdown with the latest folder list."""
+        if not hasattr(self, 'folder_filter_combo') or not self.folder_filter_combo:
+            return
+        folders = ["All"] + self.winners_manager.get_all_folders()
+        self.folder_filter_combo['values'] = folders
+        self.folder_filter_combo.set("All")
 
     # --- The rest of the file remains the same ---
     def _initialize_winners_tab(self):

@@ -160,9 +160,10 @@ def _age_to_seconds(txt: str) -> int:
 class TabManager:
     """Manages multiple search tabs"""
 
-    def __init__(self, parent: tk.Widget, tree_container: tk.Widget):
+    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, on_tab_switch_callback=None):
         self.parent = parent
         self.tree_container = tree_container
+        self.on_tab_switch_callback = on_tab_switch_callback
         self.tabs: Dict[str, TabData] = {}
         self.active_tab_id: Optional[str] = None
         self.tab_counter = 0
@@ -510,6 +511,8 @@ class TabManager:
                 active_tab.close_button.config(bg=COLORS['bg_accent'])
 
         self.active_tab_id = tab_id
+        if self.on_tab_switch_callback:
+            self.on_tab_switch_callback(tab_id)
 
     def update_tab_status(self, tab_id: str, status_text: str, status_type: str = 'idle'):
         if tab_id not in self.tabs:
