@@ -513,7 +513,8 @@ class TabManager:
             else:
                 tab_data.frame.config(bg=COLORS['bg_tertiary'], relief='solid')
                 tab_data.label.config(bg=COLORS['bg_tertiary'], fg=COLORS['fg_secondary'])
-                tab_data.status_label.config(bg=COLORS['bg_tertiary'])
+                if tab_data.status_label:
+                    tab_data.status_label.config(bg=COLORS['bg_tertiary'])
                 if tab_data.close_button:
                     tab_data.close_button.config(bg=COLORS['bg_tertiary'])
 
@@ -532,7 +533,8 @@ class TabManager:
         else:
             active_tab.frame.config(bg=COLORS['bg_accent'], relief='raised')
             active_tab.label.config(bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 9, 'bold'))
-            active_tab.status_label.config(bg=COLORS['bg_accent'])
+            if active_tab.status_label:
+                active_tab.status_label.config(bg=COLORS['bg_accent'])
             if active_tab.close_button:
                 active_tab.close_button.config(bg=COLORS['bg_accent'])
 
