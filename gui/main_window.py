@@ -319,7 +319,7 @@ class MainWindow:
         left_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
         left_frame.pack(side='left')
 
-        self.winners_counter_label = tk.Label(left_frame, text='Winners: 0', fg='#FFD700', bg=COLORS.get('bg_primary', '#16181d'))
+        self.winners_counter_label = tk.Label(left_frame, text='Library: 0', fg='#FFD700', bg=COLORS.get('bg_primary', '#16181d'))
         self.winners_counter_label.pack(side='left', padx=(0, 18))
 
         self.status_message_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
@@ -365,7 +365,7 @@ class MainWindow:
             winners_tab_id = self.tab_manager.create_winners_tab()
             self._load_winners_to_tab()
             winner_count = self.winners_manager.get_winner_count()
-            self.winners_counter_label.config(text=f'Winners: {winner_count}')
+            self.winners_counter_label.config(text=f'Library: {winner_count}')
             self.tab_manager.update_tab_status(
                 winners_tab_id,
                 f"{winner_count} saved",
@@ -382,6 +382,7 @@ class MainWindow:
             self.tab_manager.clear_tab_results(winners_tab.tab_id)
             for winner in self.winners_manager.winners:
                 self.tab_manager.add_winner_to_tab(winner.to_dict())
+            self.tab_manager.update_folder_filter()
         except Exception as e:
             self.logger.error(f"Error loading winners to tab: {e}")
 
@@ -432,7 +433,7 @@ class MainWindow:
                 self._load_winners_to_tab()
 
                 winner_count = self.winners_manager.get_winner_count()
-                self.winners_counter_label.config(text=f'Winners: {winner_count}')
+                self.winners_counter_label.config(text=f'Library: {winner_count}')
 
                 winners_tab_id = self.tab_manager.winners_tab_id
                 if winners_tab_id:
@@ -446,7 +447,7 @@ class MainWindow:
                             self._pulse_winners_counter()
                             self._load_winners_to_tab()
                             winner_count = self.winners_manager.get_winner_count()
-                            self.winners_counter_label.config(text=f'Winners: {winner_count}')
+                            self.winners_counter_label.config(text=f'Library: {winner_count}')
                             self._clear_status_message()
                             self._set_status_message("Save undone.", None)
 

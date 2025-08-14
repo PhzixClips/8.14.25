@@ -18,13 +18,16 @@ class TabData:
     frame: tk.Frame
     label: tk.Label
     status_label: tk.Label
-    close_button: tk.Button
+    close_button: Optional[tk.Button]
     tree: ttk.Treeview
     search_term: str
     results: List[Dict]
     status_text: str
     tooltip_data: Dict[str, str]
     is_winners_tab: bool = False
+    # Optional fields for library tab
+    container: Optional[tk.Frame] = None
+    folder_filter_combo: Optional[ttk.Combobox] = None
 
 
 def _format_percentage(value: Optional[float], decimals: int = 1) -> str:
@@ -238,7 +241,7 @@ class TabManager:
             return self.winners_tab_id
 
         tab_id = "winners_tab"
-        display_name = "🏆 Winners"
+        display_name = "🏆 Library"
 
         tab_frame = tk.Frame(self.tabs_container, bg='#FFD700', relief='solid', bd=2)
 
@@ -255,19 +258,36 @@ class TabManager:
         status_label.pack(side='left')
 
         close_button = None
-        tree = self._create_winners_treeview()
+        # Create a container for the filter and the tree
+        library_container = tk.Frame(self.tree_container, bg=COLORS.get('bg_primary'))
+
+        filter_frame = tk.Frame(library_container, bg=COLORS.get('bg_primary'))
+        filter_frame.pack(fill='x', pady=5, padx=5)
+
+        tk.Label(filter_frame, text="Filter by Folder:", bg=COLORS.get('bg_primary'), fg=COLORS.get('fg_primary')).pack(side='left')
+
+        folder_var = tk.StringVar()
+        folder_filter_combo = ttk.Combobox(filter_frame, textvariable=folder_var, state='readonly', width=30)
+        folder_filter_combo.pack(side='left', padx=5)
+
+        tree = self._create_winners_treeview(library_container)
+        tree.pack(side='bottom', fill='both', expand=True)
+
         self._bind_winners_tab_events(tab_frame, tab_label, status_label, tab_id)
 
         tab_data = TabData(
             tab_id=tab_id, frame=tab_frame, label=tab_label, status_label=status_label,
-            close_button=close_button, tree=tree, search_term="Winners",
-            results=[], status_text='idle', tooltip_data={}, is_winners_tab=True
+            close_button=close_button, tree=tree, search_term="Library",
+            results=[], status_text='idle', tooltip_data={}, is_winners_tab=True,
+            container=library_container, folder_filter_combo=folder_filter_combo
         )
 
         self.tabs[tab_id] = tab_data
         self.winners_tab_id = tab_id
         self._bind_tree_tooltip(tree, tab_id)
         tab_frame.pack(side='left', fill='y', padx=2, pady=2)
+
+        folder_filter_combo.bind("<<ComboboxSelected>>", lambda event: self.filter_library_by_folder())
 
         return tab_id
 
@@ -357,11 +377,11 @@ class TabManager:
         tree.column('video_id', width=0, stretch=False)
         return tree
 
-    def _create_winners_treeview(self) -> ttk.Treeview:
+    def _create_winners_treeview(self, parent_container: tk.Widget) -> ttk.Treeview:
         columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder', 'video_id')
         display_columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder')
 
-        tree = ttk.Treeview(self.parent, columns=columns, show='headings', displaycolumns=display_columns)
+        tree = ttk.Treeview(parent_container, columns=columns, show='headings', displaycolumns=display_columns)
 
         column_widths = {
             'Title': 250, 'Score': 70, 'Views': 70, 'Likes': 70,
@@ -486,7 +506,11 @@ class TabManager:
         if tab_id not in self.tabs:
             return
         for _, tab_data in self.tabs.items():
-            tab_data.tree.place_forget()
+            if tab_data.is_winners_tab and tab_data.container:
+                tab_data.container.place_forget()
+            else:
+                tab_data.tree.place_forget()
+
             if tab_data.is_winners_tab:
                 tab_data.frame.config(bg='#FFD700', relief='solid')
                 tab_data.label.config(bg='#FFD700', fg='#000000')
@@ -499,7 +523,11 @@ class TabManager:
                     tab_data.close_button.config(bg=COLORS['bg_tertiary'])
 
         active_tab = self.tabs[tab_id]
-        active_tab.tree.place(in_=self.tree_container, x=0, y=0, relwidth=1, relheight=1)
+        if active_tab.is_winners_tab and active_tab.container:
+            active_tab.container.place(in_=self.tree_container, x=0, y=0, relwidth=1, relheight=1)
+            self.update_folder_filter()
+        else:
+            active_tab.tree.place(in_=self.tree_container, x=0, y=0, relwidth=1, relheight=1)
 
         if active_tab.is_winners_tab:
             active_tab.frame.config(bg='#FFB000', relief='raised')
@@ -645,4 +673,38 @@ class TabManager:
         for video in tab_data.results:
             if video.get('video_id') == video_id:
                 return video
+        # Fallback for winners tab, which might have a filtered view
+        if tab_data.is_winners_tab:
+            winner = self.winners_manager.get_winner_by_id(video_id)
+            if winner:
+                return winner.to_dict()
         return None
+
+    def update_folder_filter(self):
+        """Updates the folder filter dropdown with the current folders."""
+        winners_tab = self.get_winners_tab()
+        if not winners_tab or not winners_tab.folder_filter_combo:
+            return
+
+        all_folders = ["All"] + self.winners_manager.get_all_folders()
+        winners_tab.folder_filter_combo['values'] = all_folders
+        if not winners_tab.folder_filter_combo.get():
+            winners_tab.folder_filter_combo.set("All")
+
+    def filter_library_by_folder(self):
+        """Filters the library treeview based on the dropdown selection."""
+        winners_tab = self.get_winners_tab()
+        if not winners_tab or not winners_tab.folder_filter_combo:
+            return
+
+        selected_folder = winners_tab.folder_filter_combo.get()
+
+        self.clear_tab_results(self.winners_tab_id)
+
+        if selected_folder == "All":
+            winners = self.winners_manager.winners
+        else:
+            winners = self.winners_manager.get_winners_by_folder(selected_folder)
+
+        for winner in winners:
+            self.add_winner_to_tab(winner.to_dict())
