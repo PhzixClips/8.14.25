@@ -396,6 +396,7 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+        tree.column('original_title', width=0, stretch=False)
         return tree
 
     def _bind_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,
