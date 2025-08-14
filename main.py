@@ -2,6 +2,11 @@
 """
 YouTube Clip Agent - Main Application Entry Point
 """
+import sys
+import os
+
+# Ensure the project root is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from gui.main_window import MainWindow
 from utils.logging import setup_logging
