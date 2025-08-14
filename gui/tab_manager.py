@@ -508,7 +508,8 @@ class TabManager:
             if tab_data.is_winners_tab:
                 tab_data.frame.config(bg='#FFD700', relief='solid')
                 tab_data.label.config(bg='#FFD700', fg='#000000')
-                tab_data.status_label.config(bg='#FFD700')
+                if tab_data.status_label:
+                    tab_data.status_label.config(bg='#FFD700')
             else:
                 tab_data.frame.config(bg=COLORS['bg_tertiary'], relief='solid')
                 tab_data.label.config(bg=COLORS['bg_tertiary'], fg=COLORS['fg_secondary'])
@@ -525,8 +526,9 @@ class TabManager:
 
         if active_tab.is_winners_tab:
             active_tab.frame.config(bg='#FFB000', relief='raised')
-            active_tab.label.config(bg='#FFB000', fg='#000000', font=('Segoe UI', 9, 'bold'))
-            active_tab.status_label.config(bg='#FFB000')
+            active_tab.label.config(bg='#FFB000', fg='#000000', font=('Segoe UI', 11, 'bold'))
+            if active_tab.status_label:
+                active_tab.status_label.config(bg='#FFB000')
         else:
             active_tab.frame.config(bg=COLORS['bg_accent'], relief='raised')
             active_tab.label.config(bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 9, 'bold'))
