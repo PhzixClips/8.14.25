@@ -8,13 +8,11 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from data.settings_manager import settings_manager
 
-from . import WinnersManager
-
 class SettingsWindow(tk.Toplevel):
     """
     A Toplevel window for displaying and editing application settings.
     """
-    def __init__(self, parent, winners_manager: WinnersManager):
+    def __init__(self, parent, winners_manager: 'WinnersManager'):
         super().__init__(parent)
         self.title("Settings")
         self.geometry("800x600")

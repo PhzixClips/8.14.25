@@ -16,6 +16,7 @@ import threading
 from config import WINDOW_GEOMETRY, COLORS, UI_FONT_FAMILY, UI_FONT_SIZES, AUDIO_CLIPS_PATH
 from gui.theme import apply_theme
 from gui.settings_window import SettingsWindow
+from data.settings_manager import settings_manager
 
 # Core modules
 from search.search_engine import SearchEngine
