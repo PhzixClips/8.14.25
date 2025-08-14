@@ -8,11 +8,13 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from data.settings_manager import settings_manager
 
+from . import WinnersManager
+
 class SettingsWindow(tk.Toplevel):
     """
     A Toplevel window for displaying and editing application settings.
     """
-    def __init__(self, parent):
+    def __init__(self, parent, winners_manager: WinnersManager):
         super().__init__(parent)
         self.title("Settings")
         self.geometry("800x600")
@@ -20,6 +22,7 @@ class SettingsWindow(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
 
+        self.winners_manager = winners_manager
         self.settings = settings_manager.settings
         self.vars = {}
 
@@ -39,10 +42,12 @@ class SettingsWindow(tk.Toplevel):
         appearance_tab = self._create_appearance_tab(notebook)
         paths_tab = self._create_paths_tab(notebook)
         search_tab = self._create_search_tab(notebook)
+        library_tab = self._create_library_tab(notebook)
 
         notebook.add(appearance_tab, text="Appearance")
         notebook.add(paths_tab, text="Paths & API")
         notebook.add(search_tab, text="Search & Analysis")
+        notebook.add(library_tab, text="Library")
 
         # Action buttons
         button_frame = tk.Frame(main_frame, bg="#1e1e1e")
@@ -197,3 +202,85 @@ class SettingsWindow(tk.Toplevel):
         path = filedialog.askdirectory(parent=self)
         if path:
             self.vars[key].set(path)
+
+    def _create_library_tab(self, parent):
+        frame = ttk.Frame(parent, padding=10)
+        frame.columnconfigure(1, weight=1)
+
+        ttk.Label(frame, text="Save Dialog Settings", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 10))
+
+        # Default Folder
+        ttk.Label(frame, text="Default Save Folder:").grid(row=1, column=0, sticky='w', pady=5)
+        self.vars['save_default_folder'] = tk.StringVar()
+        folder_combo = ttk.Combobox(frame, textvariable=self.vars['save_default_folder'],
+                                    values=self.winners_manager.get_all_folders(), state="readonly")
+        folder_combo.grid(row=1, column=1, sticky='ew', padx=5)
+
+        # Toggles
+        self.vars['save_remember_last_folder'] = tk.BooleanVar()
+        ttk.Checkbutton(frame, text="Remember last used folder", variable=self.vars['save_remember_last_folder']).grid(row=2, column=0, columnspan=2, sticky='w', pady=5)
+
+        self.vars['save_auto_download_transcript'] = tk.BooleanVar()
+        ttk.Checkbutton(frame, text="Auto-download transcript on save (if not present)", variable=self.vars['save_auto_download_transcript']).grid(row=3, column=0, columnspan=2, sticky='w', pady=5)
+
+        self.vars['save_auto_open_prompt_builder'] = tk.BooleanVar()
+        ttk.Checkbutton(frame, text="Auto-open Prompt Builder after save", variable=self.vars['save_auto_open_prompt_builder']).grid(row=4, column=0, columnspan=2, sticky='w', pady=5)
+
+        return frame
+
+    def _load_settings(self):
+        # Appearance
+        self.vars['theme_name'].set(self.settings.get('theme_name'))
+        self.vars['ui_scale'].set(self.settings.get('ui_scale'))
+        for key, var in self.vars['font_sizes'].items():
+            var.set(self.settings.get('font_sizes', {}).get(key))
+
+        # Paths & API
+        self.api_keys_text.insert('1.0', "\n".join(self.settings.get('api_keys', [])))
+        self.vars['yt_dlp_path'].set(self.settings.get('yt_dlp_path'))
+        self.vars['ffmpeg_path'].set(self.settings.get('ffmpeg_path'))
+        self.vars['cliphustle_base_path'].set(self.settings.get('cliphustle_base_path'))
+
+        # Search & Analysis
+        self.vars['max_api_calls'].set(self.settings.get('max_api_calls'))
+        self.vars['default_search_count'].set(self.settings.get('default_search_count'))
+        for key, var in self.vars['viral_score_weights'].items():
+            var.set(self.settings.get('viral_score_weights', {}).get(key))
+
+        # Library
+        self.vars['save_default_folder'].set(self.settings.get('save_default_folder'))
+        self.vars['save_remember_last_folder'].set(self.settings.get('save_remember_last_folder'))
+        self.vars['save_auto_download_transcript'].set(self.settings.get('save_auto_download_transcript'))
+        self.vars['save_auto_open_prompt_builder'].set(self.settings.get('save_auto_open_prompt_builder'))
+
+    def _save_and_close(self):
+        try:
+            # Appearance
+            settings_manager.set('theme_name', self.vars['theme_name'].get())
+            settings_manager.set('ui_scale', self.vars['ui_scale'].get())
+            font_sizes = {key: var.get() for key, var in self.vars['font_sizes'].items()}
+            settings_manager.set('font_sizes', font_sizes)
+
+            # Paths & API
+            api_keys = self.api_keys_text.get('1.0', tk.END).strip().split('\n')
+            settings_manager.set('api_keys', [key for key in api_keys if key])
+            settings_manager.set('yt_dlp_path', self.vars['yt_dlp_path'].get())
+            settings_manager.set('ffmpeg_path', self.vars['ffmpeg_path'].get())
+            settings_manager.set('cliphustle_base_path', self.vars['cliphustle_base_path'].get())
+
+            # Search & Analysis
+            settings_manager.set('max_api_calls', self.vars['max_api_calls'].get())
+            settings_manager.set('default_search_count', self.vars['default_search_count'].get())
+            viral_weights = {key: var.get() for key, var in self.vars['viral_score_weights'].items()}
+            settings_manager.set('viral_score_weights', viral_weights)
+
+            # Library
+            settings_manager.set('save_default_folder', self.vars['save_default_folder'].get())
+            settings_manager.set('save_remember_last_folder', self.vars['save_remember_last_folder'].get())
+            settings_manager.set('save_auto_download_transcript', self.vars['save_auto_download_transcript'].get())
+            settings_manager.set('save_auto_open_prompt_builder', self.vars['save_auto_open_prompt_builder'].get())
+
+            messagebox.showinfo("Settings Saved", "Settings have been saved. Some changes may require a restart to take full effect.", parent=self)
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror("Error Saving", f"An error occurred while saving settings: {e}", parent=self)

@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from utils.logging import log_upgrade
 
+from dataclasses import dataclass, asdict, field
+
 @dataclass
 class WinnerVideo:
     """Data class for winner video"""
@@ -27,6 +29,8 @@ class WinnerVideo:
     date_saved: str
     folder: str = "Default"
     notes: str = ""
+    display_title: str = ""
+    tags: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
@@ -35,6 +39,11 @@ class WinnerVideo:
     @classmethod
     def from_dict(cls, data: Dict) -> 'WinnerVideo':
         """Create from dictionary"""
+        # Fallback for old data: if display_title is missing, use original title
+        display_title = data.get('display_title', data.get('title', ''))
+        if not display_title:
+             display_title = data.get('title', '')
+
         return cls(
             video_id=data.get('video_id', ''),
             title=data.get('title', ''),
@@ -49,7 +58,9 @@ class WinnerVideo:
             repost_reason=data.get('repost_reason', ''),
             date_saved=data.get('date_saved', ''),
             folder=data.get('folder', 'Default'),
-            notes=data.get('notes', '')
+            notes=data.get('notes', ''),
+            display_title=display_title,
+            tags=data.get('tags', [])
         )
 
 class WinnersManager:
@@ -105,17 +116,17 @@ class WinnersManager:
             log_upgrade(f"Error saving winners: {e}")
             return False
 
-    def add_winner(self, video_data: Dict, folder: str = "Default", notes: str = "") -> bool:
+    def add_winner(self, video_data: Dict, folder: str, notes: str = "") -> bool:
         """Add a video to winners"""
         video_id = video_data.get('video_id', '')
 
-        # Check if already exists
         if self.get_winner_by_id(video_id):
-            return False  # Already exists
+            return False
 
         winner = WinnerVideo(
             video_id=video_id,
             title=video_data.get('title', ''),
+            display_title=video_data.get('display_title', video_data.get('title', '')),
             viral_score=video_data.get('viral_score', 0.0),
             views=video_data.get('views', 0),
             likes=video_data.get('likes', 0),
@@ -127,7 +138,8 @@ class WinnersManager:
             repost_reason=video_data.get('repost_reason', ''),
             date_saved=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             folder=folder,
-            notes=notes
+            notes=notes,
+            tags=video_data.get('tags', [])
         )
 
         self.winners.append(winner)
@@ -219,6 +231,26 @@ class WinnersManager:
             winner.notes = notes
             return self.save_winners()
         return False
+
+    def update_winner(self, video_id: str, new_data: Dict) -> bool:
+        """Update an existing winner with new data."""
+        winner = self.get_winner_by_id(video_id)
+        if not winner:
+            return False
+
+        winner.display_title = new_data.get('display_title', winner.display_title)
+        winner.notes = new_data.get('notes', winner.notes)
+        winner.tags = new_data.get('tags', winner.tags)
+
+        if 'folder' in new_data and new_data['folder'] in self.folders:
+            winner.folder = new_data['folder']
+
+        # For forward compatibility, update any other fields that might be in new_data
+        for key, value in new_data.items():
+            if hasattr(winner, key) and key not in ['video_id', 'title', 'date_saved']:
+                setattr(winner, key, value)
+
+        return self.save_winners()
 
     def search_winners(self, query: str) -> List[WinnerVideo]:
         """Search winners by title"""

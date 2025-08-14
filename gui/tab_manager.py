@@ -157,17 +157,21 @@ def _age_to_seconds(txt: str) -> int:
     return total if found else -1
 
 
+from data.winners_manager import WinnersManager
+
 class TabManager:
     """Manages multiple search tabs"""
 
-    def __init__(self, parent: tk.Widget, tree_container: tk.Widget):
+    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager):
         self.parent = parent
         self.tree_container = tree_container
+        self.winners_manager = winners_manager
         self.tabs: Dict[str, TabData] = {}
         self.active_tab_id: Optional[str] = None
         self.tab_counter = 0
         self.tooltip = Tooltip()
         self.winners_tab_id: Optional[str] = None
+        self.entry_edit = None
 
         self._create_tab_container()
 
@@ -394,7 +398,71 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+        tree.bind('<F2>', self._on_f2_press)
         return tree
+
+    def _on_f2_press(self, event):
+        """Handle F2 key press for inline editing."""
+        if self.entry_edit:
+            return # Already editing
+
+        tree = event.widget
+        if not (self.active_tab_id == self.winners_tab_id):
+            return
+
+        selection = tree.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        column = "#1" # Title column
+
+        bbox = tree.bbox(item_id, column)
+        if not bbox:
+            return
+
+        x, y, width, height = bbox
+
+        # Get original text (including indicator)
+        original_text_with_indicator = tree.set(item_id, column)
+        # Isolate the actual title text
+        parts = original_text_with_indicator.split(" ", 1)
+        original_title = parts[1] if len(parts) > 1 else ""
+
+        self.entry_edit = ttk.Entry(tree, style="Treeview.field")
+        self.entry_edit.place(x=x, y=y, width=width, height=height)
+
+        self.entry_edit.insert(0, original_title)
+        self.entry_edit.select_range(0, 'end')
+        self.entry_edit.focus_set()
+
+        def on_focus_out(event):
+            if self.entry_edit:
+                self.entry_edit.event_generate('<Return>')
+
+        def on_return(event):
+            if self.entry_edit:
+                new_title = self.entry_edit.get()
+                video_id = tree.set(item_id, 'video_id')
+
+                # Update data source
+                self.winners_manager.update_winner(video_id, {'display_title': new_title})
+
+                # Update treeview display
+                indicator = parts[0] if len(parts) > 1 else ""
+                tree.set(item_id, column, f"{indicator} {new_title}")
+
+                self.entry_edit.destroy()
+                self.entry_edit = None
+
+        def on_escape(event):
+            if self.entry_edit:
+                self.entry_edit.destroy()
+                self.entry_edit = None
+
+        self.entry_edit.bind('<Return>', on_return)
+        self.entry_edit.bind('<FocusOut>', on_focus_out)
+        self.entry_edit.bind('<Escape>', on_escape)
 
     def _bind_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,
                          status_label: tk.Label, close_button: tk.Button, tab_id: str):
@@ -583,7 +651,11 @@ class TabManager:
         tab_data = self.tabs[self.winners_tab_id]
 
         indicator = '🟢' if not winner_data.get('repost_flag') else '🔴'
-        title_display = f"{indicator} {winner_data.get('title', '')}"
+
+        # Use display_title if available, otherwise fallback to original title
+        title_to_display = winner_data.get('display_title') or winner_data.get('title', '')
+        title_display = f"{indicator} {title_to_display}"
+
         score_display = winner_data.get('viral_score', 'N/A')
         if score_display != 'N/A':
             score_display = f"{score_display:.3f}"

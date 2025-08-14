@@ -67,7 +67,14 @@ class SettingsManager:
             "generic_hashtags": ["#viral", "#trending", "#fyp", "#mustwatch", "#explore"],
 
             # Window
-            "window_geometry": "1200x700"
+            "window_geometry": "1200x700",
+
+            # Save Dialog
+            "save_default_folder": "Default",
+            "save_auto_open_prompt_builder": False,
+            "save_auto_download_transcript": False,
+            "save_remember_last_folder": True,
+            "save_last_used_folder": "Default"
         }
 
     def load_settings(self):

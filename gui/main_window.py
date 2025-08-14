@@ -10,9 +10,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import webview
 from typing import Optional
+import threading
 
 # --- App config & theme ---
-from config import WINDOW_GEOMETRY, COLORS, UI_FONT_FAMILY, UI_FONT_SIZES
+from config import WINDOW_GEOMETRY, COLORS, UI_FONT_FAMILY, UI_FONT_SIZES, AUDIO_CLIPS_PATH
 from gui.theme import apply_theme
 from gui.settings_window import SettingsWindow
 
@@ -76,6 +77,10 @@ class MainWindow:
         self.action_buttons = {}
         self.winners_counter_label = None
         self.tab_counter_label = None
+        self.status_message_frame = None
+        self.status_message_label = None
+        self.undo_button = None
+        self.status_job = None
 
 
     # -----------------------------
@@ -274,7 +279,7 @@ class MainWindow:
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self.root, self.tree_container)
+        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager)
 
     # -----------------------------
     # Bottom action buttons
@@ -291,7 +296,7 @@ class MainWindow:
             ('Download', '#3B82F6', self._download_video),
             ('Transcribe', '#7C3AED', self._transcribe_video),
             ('Find Raw', '#A16207', self._find_raw_source),
-            ('🏆 Save to Winners', '#FFD700', self._save_to_winners),
+            ('🏆 Save to Library', '#FFD700', self._save_to_winners),
             ('Open Folder', '#222', self._open_clip_folder)
         ]
 
@@ -313,6 +318,9 @@ class MainWindow:
         self.winners_counter_label = tk.Label(left_frame, text='Winners: 0', fg='#FFD700', bg=COLORS.get('bg_primary', '#16181d'))
         self.winners_counter_label.pack(side='left', padx=(0, 18))
 
+        self.status_message_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
+        self.status_message_frame.pack(side='left', expand=True, fill='x', padx=20)
+
         right_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
         right_frame.pack(side='right', padx=10)
 
@@ -328,11 +336,24 @@ class MainWindow:
 
     def _open_settings(self):
         """Opens the settings window and applies changes upon closing."""
-        settings_win = SettingsWindow(self.root)
+        settings_win = SettingsWindow(self.root, self.winners_manager)
         self.root.wait_window(settings_win)
         # A restart is still recommended for theme changes to be perfect
         messagebox.showinfo("Settings Updated", "Live settings applied. A restart is recommended for all changes to take full effect.", parent=self.root)
         self._apply_live_settings()
+        self._update_save_button_text()
+
+    def _update_save_button_text(self):
+        """Updates the 'Save to Library' button text with the last/default folder."""
+        if '🏆 Save to Library' in self.action_buttons:
+            button = self.action_buttons['🏆 Save to Library']
+
+            last_folder = settings_manager.get('save_last_used_folder', 'Default')
+            if not settings_manager.get('save_remember_last_folder'):
+                last_folder = settings_manager.get('save_default_folder', 'Default')
+
+            button_text = f"Save to {last_folder} ▾"
+            button.config(text=button_text)
 
     # --- The rest of the file remains the same ---
     def _initialize_winners_tab(self):
@@ -364,109 +385,320 @@ class MainWindow:
         try:
             video = self.tab_manager.get_selected_video()
             if not video:
-                messagebox.showinfo('Save to Winners', 'Please select a video first.')
+                messagebox.showinfo('Save to Library', 'Please select a video first.')
                 return
 
             video_id = video.get('video_id', '')
-            if self.winners_manager.get_winner_by_id(video_id):
-                messagebox.showwarning('Already Saved', 'This video is already in your Winners!')
-                return
+            video_title = video.get('title', '')
 
             folders = self.winners_manager.get_all_folders()
-            folder_choice = self._show_folder_selection_dialog(folders)
-            if folder_choice is None:
+            transcript_path = AUDIO_CLIPS_PATH / f"{video_id}_transcript.txt"
+            has_transcript = transcript_path.exists()
+
+            dialog_result = self._show_folder_selection_dialog(folders, video_title, has_transcript)
+            if not dialog_result:
                 return
 
-            success = self.winners_manager.add_winner(video, folder_choice)
+            # --- Save or Update Winner ---
+            existing_winner = self.winners_manager.get_winner_by_id(video_id)
+            success = False
+            is_update = False
+
+            if existing_winner:
+                is_update = True
+                action = self._show_conflict_dialog(video_title)
+                if action == 'skip': return
+
+                if action == 'replace':
+                    dialog_result['folder'] = existing_winner.folder
+
+                success = self.winners_manager.update_winner(video_id, dialog_result)
+            else:
+                video_to_save = video.copy()
+                video_to_save.update(dialog_result)
+                success = self.winners_manager.add_winner(video_to_save, dialog_result['folder'], notes=dialog_result['notes'])
+
+            # --- Post-Save Actions ---
             if success:
-                winner = self.winners_manager.get_winner_by_id(video_id)
-                if winner:
-                    self.tab_manager.add_winner_to_tab(winner.to_dict())
+                # Update last used folder if setting is enabled
+                if settings_manager.get('save_remember_last_folder'):
+                    settings_manager.set('save_last_used_folder', dialog_result['folder'])
+
+                self._pulse_winners_counter()
+                self._load_winners_to_tab()
+
                 winner_count = self.winners_manager.get_winner_count()
                 self.winners_counter_label.config(text=f'Winners: {winner_count}')
+
                 winners_tab_id = self.tab_manager.winners_tab_id
                 if winners_tab_id:
-                    self.tab_manager.update_tab_status(winners_tab_id, f"{winner_count} saved", 'complete')
-                messagebox.showinfo('Success', f'Video saved to Winners in "{folder_choice}" folder!')
-            else:
-                messagebox.showerror('Error', 'Failed to save video to Winners.')
+                    self.tab_manager.update_tab_status(f"{winner_count} saved", 'complete')
+
+                if is_update:
+                    self._set_status_message(f"Successfully updated '{video_title[:30]}...'", None)
+                else:
+                    def undo_action():
+                        if self.winners_manager.remove_winner(video_id):
+                            self._pulse_winners_counter()
+                            self._load_winners_to_tab()
+                            winner_count = self.winners_manager.get_winner_count()
+                            self.winners_counter_label.config(text=f'Winners: {winner_count}')
+                            self._clear_status_message()
+                            self._set_status_message("Save undone.", None)
+
+                    display_title = dialog_result['display_title']
+                    saved_as = f"'{display_title[:20]}...'" if len(display_title) > 20 else f"'{display_title}'"
+                    self._set_status_message(f"Saved to {dialog_result['folder']} as {saved_as}", undo_action)
+
+                if dialog_result.get('download_transcript'):
+                    self._download_transcript_async(
+                        video_id,
+                        callback=lambda: self._open_prompt_builder(video_id, dialog_result['display_title']) if dialog_result.get('open_prompt_builder') else None
+                    )
+                elif dialog_result.get('open_prompt_builder'):
+                    self._open_prompt_builder(video_id, dialog_result['display_title'])
+
+            elif not is_update:
+                messagebox.showerror('Error', 'Failed to save video to Library.')
+
         except Exception as e:
             self.logger.error(f"Error saving to winners: {e}")
-            messagebox.showerror('Error', f'Error saving to winners: {e}')
+            messagebox.showerror('Error', f'An unexpected error occurred: {e}')
 
-    def _show_folder_selection_dialog(self, folders: list) -> Optional[str]:
+    def _show_conflict_dialog(self, video_title: str) -> str:
+        """Shows a dialog to resolve a save conflict."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Conflict: Video Exists")
+        dialog.geometry("450x150")
+        dialog.configure(bg=COLORS.get('bg_primary', '#16181d'))
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        result = ['skip'] # Default to skipping
+
+        label = tk.Label(dialog, text=f"'{video_title[:40]}...' is already in the Library.", fg=COLORS.get('fg_primary'), bg=COLORS.get('bg_primary'))
+        label.pack(pady=20)
+
+        button_frame = tk.Frame(dialog, bg=COLORS.get('bg_primary', '#16181d'))
+        button_frame.pack(pady=10)
+
+        def set_action(action):
+            result[0] = action
+            dialog.destroy()
+
+        ttk.Button(button_frame, text="Replace Metadata (Keep Folder)", command=lambda: set_action('replace')).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Overwrite (Update All)", command=lambda: set_action('overwrite')).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Skip", command=lambda: set_action('skip')).pack(side='right', padx=5)
+
+        dialog.wait_window()
+        return result[0]
+
+    def _clear_status_message(self):
+        if self.status_job:
+            self.root.after_cancel(self.status_job)
+            self.status_job = None
+
+        for widget in self.status_message_frame.winfo_children():
+            widget.destroy()
+
+        self.status_message_label = None
+        self.undo_button = None
+
+    def _set_status_message(self, message: str, undo_command: Optional[callable] = None):
+        self._clear_status_message()
+
+        self.status_message_label = tk.Label(self.status_message_frame, text=message, fg=COLORS.get('fg_primary'), bg=COLORS.get('bg_primary'))
+        self.status_message_label.pack(side='left')
+
+        if undo_command:
+            self.undo_button = tk.Button(self.status_message_frame, text="Undo", command=undo_command, bg=COLORS.get('bg_accent'), fg=COLORS.get('fg_on_accent'), relief='flat', font=(UI_FONT_FAMILY, UI_FONT_SIZES['sm']-1))
+            self.undo_button.pack(side='left', padx=10)
+
+        self.status_job = self.root.after(6000, self._clear_status_message)
+
+    def _pulse_winners_counter(self):
+        original_color = '#FFD700'
+        accent_color = COLORS.get('success', 'green')
+
+        self.winners_counter_label.config(fg=accent_color)
+        self.root.after(250, lambda: self.winners_counter_label.config(fg=original_color))
+        self.root.after(500, lambda: self.winners_counter_label.config(fg=accent_color))
+        self.root.after(750, lambda: self.winners_counter_label.config(fg=original_color))
+
+    def _show_folder_selection_dialog(self, folders: list, original_title: str, has_transcript: bool) -> Optional[dict]:
         try:
             dialog = tk.Toplevel(self.root)
-            dialog.title('Select Folder')
-            dialog.geometry('400x300')
+            dialog.title('Save to Library')
+            dialog.geometry('550x650')
             dialog.configure(bg=COLORS.get('bg_primary', '#16181d'))
             dialog.resizable(False, False)
             dialog.transient(self.root)
             dialog.grab_set()
 
             dialog.update_idletasks()
-            x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
-            y = (dialog.winfo_screenheight() // 2) - (300 // 2)
-            dialog.geometry(f"400x300+{x}+{y}")
+            x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+            y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+            dialog.geometry(f"+{x}+{y}")
 
             result = [None]
 
-            tk.Label(
-                dialog,
-                text='Choose folder for this winner:',
-                bg=COLORS.get('bg_primary', '#16181d'),
-                fg=COLORS.get('fg_accent', '#fbbf24'),
-                font=(UI_FONT_FAMILY, UI_FONT_SIZES['lg'], 'bold')
-            ).pack(pady=10)
+            main_frame = tk.Frame(dialog, bg=COLORS.get('bg_primary', '#16181d'))
+            main_frame.pack(fill='both', expand=True, padx=20, pady=10)
 
-            listbox_frame = tk.Frame(dialog, bg=COLORS.get('bg_primary', '#16181d'))
-            listbox_frame.pack(fill='both', expand=True, padx=20, pady=10)
+            # --- Form fields ---
+            tk.Label(main_frame, text="Display Title", bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6')).pack(anchor='w')
+            title_var = tk.StringVar(value=original_title)
+            tk.Entry(main_frame, textvariable=title_var, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6')).pack(fill='x', pady=(2, 8))
 
-            listbox = tk.Listbox(
-                listbox_frame,
-                bg=COLORS.get('bg_secondary', '#1f232a'),
-                fg=COLORS.get('fg_primary', '#e6e6e6'),
-                selectbackground=COLORS.get('bg_accent', '#2d6cdf'),
-                selectforeground=COLORS.get('fg_on_accent', '#ffffff'),
-                font=(UI_FONT_FAMILY, UI_FONT_SIZES['base'])
-            )
+            tk.Label(main_frame, text="Folder", bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6')).pack(anchor='w')
+            listbox_frame = tk.Frame(main_frame)
+            listbox_frame.pack(fill='both', expand=True, pady=(2, 8))
+            listbox = tk.Listbox(listbox_frame, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), selectbackground=COLORS.get('bg_accent', '#2d6cdf'), selectforeground=COLORS.get('fg_on_accent', '#ffffff'), exportselection=False)
             scrollbar = tk.Scrollbar(listbox_frame, command=listbox.yview)
             listbox.configure(yscrollcommand=scrollbar.set)
+
+            def populate_listbox(select_item=None):
+                current_selection_index = listbox.curselection()
+                listbox.delete(0, tk.END)
+                for folder in folders: listbox.insert(tk.END, folder)
+                if select_item and select_item in folders:
+                    idx = folders.index(select_item)
+                    listbox.select_set(idx)
+                    listbox.see(idx)
+                elif current_selection_index:
+                    listbox.select_set(current_selection_index[0])
+
+            populate_listbox()
             listbox.pack(side='left', fill='both', expand=True)
             scrollbar.pack(side='right', fill='y')
 
-            for folder in folders:
-                listbox.insert(tk.END, folder)
-            listbox.select_set(0)
+            tk.Label(main_frame, text="Tags (comma-separated)", bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6')).pack(anchor='w')
+            tags_var = tk.StringVar()
+            tk.Entry(main_frame, textvariable=tags_var, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6')).pack(fill='x', pady=(2, 8))
 
+            tk.Label(main_frame, text="Notes", bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6')).pack(anchor='w')
+            notes_text = tk.Text(main_frame, height=3, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'), wrap='word')
+            notes_text.pack(fill='x', expand=True, pady=(2, 8))
+
+            # --- Transcript options ---
+            transcript_frame = tk.Frame(main_frame, bg=COLORS.get('bg_primary'))
+            transcript_frame.pack(fill='x', pady=5)
+            download_transcript_var = tk.BooleanVar(value=settings_manager.get('save_auto_download_transcript'))
+            open_prompt_builder_var = tk.BooleanVar(value=settings_manager.get('save_auto_open_prompt_builder'))
+
+            if has_transcript:
+                tk.Label(transcript_frame, text="✓ Transcript available", fg=COLORS.get('success', 'green'), bg=COLORS.get('bg_primary')).pack(side='left')
+                download_transcript_var.set(False) # Can't download if it exists
+            else:
+                ttk.Checkbutton(transcript_frame, text="Download transcript after save", variable=download_transcript_var).pack(side='left')
+
+            ttk.Checkbutton(transcript_frame, text="Open in Prompt Builder after save", variable=open_prompt_builder_var).pack(side='right')
+
+            # --- Set initial folder selection based on settings ---
+            initial_folder = None
+            if settings_manager.get('save_remember_last_folder'):
+                initial_folder = settings_manager.get('save_last_used_folder')
+            else:
+                initial_folder = settings_manager.get('save_default_folder')
+
+            if initial_folder and initial_folder in folders:
+                idx = folders.index(initial_folder)
+                listbox.select_set(idx)
+                listbox.see(idx)
+
+            # --- Buttons ---
             button_frame = tk.Frame(dialog, bg=COLORS.get('bg_primary', '#16181d'))
-            button_frame.pack(fill='x', padx=20, pady=10)
+            button_frame.pack(fill='x', padx=20, pady=(10, 15))
 
-            def on_select():
-                selection = listbox.curselection()
-                if selection:
-                    result[0] = folders[selection[0]]
-                dialog.destroy()
+            def on_save(event=None):
+                if listbox.curselection():
+                    result[0] = {
+                        "folder": folders[listbox.curselection()[0]],
+                        "display_title": title_var.get().strip(),
+                        "notes": notes_text.get("1.0", tk.END).strip(),
+                        "tags": [t.strip() for t in tags_var.get().split(',') if t.strip()],
+                        "download_transcript": download_transcript_var.get(),
+                        "open_prompt_builder": open_prompt_builder_var.get()
+                    }
+                    dialog.destroy()
+
+            save_button = ttk.Button(button_frame, text='Save', command=on_save, state='disabled')
 
             def on_new_folder():
-                new_folder = simpledialog.askstring('New Folder', 'Enter folder name:')
-                if new_folder and new_folder.strip():
-                    new_folder = new_folder.strip()
-                    if self.winners_manager.add_folder(new_folder):
-                        result[0] = new_folder
-                        dialog.destroy()
+                new_folder_name = simpledialog.askstring('New Folder', 'Enter folder name:', parent=dialog)
+                if new_folder_name and new_folder_name.strip():
+                    if self.winners_manager.add_folder(new_folder_name.strip()):
+                        nonlocal folders
+                        folders = self.winners_manager.get_all_folders()
+                        populate_listbox(select_item=new_folder_name.strip())
+                        update_save_button_state()
                     else:
-                        messagebox.showerror('Error', 'Folder already exists or invalid name.')
+                        messagebox.showerror('Error', 'Folder already exists or is invalid.', parent=dialog)
 
-            ttk.Button(button_frame, text='Select', command=on_select).pack(side='left', padx=6)
-            ttk.Button(button_frame, text='New Folder', command=on_new_folder).pack(side='left', padx=6)
-            ttk.Button(button_frame, text='Cancel', command=lambda: dialog.destroy()).pack(side='right', padx=6)
+            def update_save_button_state(event=None):
+                save_button.config(state='normal' if listbox.curselection() else 'disabled')
 
+            listbox.bind('<<ListboxSelect>>', update_save_button_state)
+            listbox.bind('<Double-1>', on_save)
+            dialog.bind('<Return>', lambda e: on_save())
+            dialog.bind('<Escape>', lambda e: dialog.destroy())
+
+            # --- Context Menu ---
+            folder_menu = tk.Menu(dialog, tearoff=0, bg=COLORS.get('bg_secondary'), fg=COLORS.get('fg_primary'))
+            def rename_folder():
+                if not listbox.curselection(): return
+                old_name = folders[listbox.curselection()[0]]
+                new_name = simpledialog.askstring("Rename Folder", f"Enter new name for '{old_name}':", parent=dialog)
+                if new_name and new_name.strip() and new_name != old_name:
+                    if self.winners_manager.rename_folder(old_name, new_name.strip()):
+                        nonlocal folders
+                        folders = self.winners_manager.get_all_folders()
+                        populate_listbox(select_item=new_name.strip())
+                    else:
+                        messagebox.showerror("Error", "Folder name already exists or is invalid.", parent=dialog)
+
+            def delete_folder():
+                if not listbox.curselection(): return
+                name = folders[listbox.curselection()[0]]
+                if messagebox.askyesno("Delete Folder", f"Are you sure you want to delete '{name}'?\n(Videos inside will be moved to Default)", parent=dialog):
+                    if self.winners_manager.remove_folder(name):
+                        nonlocal folders
+                        folders = self.winners_manager.get_all_folders()
+                        listbox.selection_clear(0, tk.END)
+                        populate_listbox()
+                        update_save_button_state()
+                    else:
+                        messagebox.showerror("Error", "Failed to delete folder.", parent=dialog)
+
+            folder_menu.add_command(label="Rename", command=rename_folder)
+            folder_menu.add_command(label="Delete", command=delete_folder)
+
+            def show_folder_menu(event):
+                idx = listbox.nearest(event.y)
+                if idx != -1:
+                    listbox.select_clear(0, tk.END)
+                    listbox.select_set(idx)
+                    is_default = folders[idx] == "Default"
+                    folder_menu.entryconfig("Rename", state="disabled" if is_default else "normal")
+                    folder_menu.entryconfig("Delete", state="disabled" if is_default else "normal")
+                    folder_menu.tk_popup(event.x_root, event.y_root)
+
+            listbox.bind("<Button-3>", show_folder_menu)
+
+            # --- Final layout ---
+            new_folder_button = ttk.Button(button_frame, text='New Folder', command=on_new_folder)
+            cancel_button = ttk.Button(button_frame, text='Cancel', command=dialog.destroy)
+            new_folder_button.pack(side='left', padx=(0, 20))
+            save_button.pack(side='right', padx=6)
+            cancel_button.pack(side='right')
+
+            update_save_button_state()
             dialog.wait_window()
             return result[0]
         except Exception as e:
             self.logger.error(f"Error in folder selection dialog: {e}")
-            return "Default"
+            return None
 
     def _extract_video_id(self, url: str) -> Optional[str]:
         patterns = [
@@ -832,3 +1064,41 @@ class MainWindow:
             self.timer_widget.set_timer(target)
         except Exception:
             messagebox.showerror('Timer Error', 'Invalid time format. Use HH:MM (24-hour format).')
+
+    def _download_transcript_async(self, video_id: str, callback: Optional[callable] = None):
+        """Downloads a transcript in a background thread."""
+        self.logger.info(f"Starting async transcript download for {video_id}")
+
+        def _task():
+            try:
+                url = f'https://www.youtube.com/watch?v={video_id}'
+                audio_path = self.media_processor.download_audio_only(video_id, url, AUDIO_CLIPS_PATH)
+                if not audio_path:
+                    self.logger.error(f"Failed to download audio for {video_id}")
+                    return
+
+                self.media_processor.transcribe_audio(audio_path)
+                self.logger.info(f"Successfully transcribed {video_id}")
+
+                if callback:
+                    self.root.after(0, callback)
+            except Exception as e:
+                self.logger.error(f"Async transcription failed for {video_id}: {e}")
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _open_prompt_builder(self, video_id: str, title: str):
+        """Opens the transcript dialog for a given video."""
+        transcript_path = AUDIO_CLIPS_PATH / f"{video_id}_transcript.txt"
+        if not transcript_path.exists():
+            messagebox.showwarning("Transcript Not Found", "The transcript for this video is not available yet. Please wait for the download to complete.", parent=self.root)
+            return
+
+        try:
+            with open(transcript_path, 'r', encoding='utf-8') as f:
+                transcript_content = f.read()
+
+            TranscriptDialog(self.root, title, video_id, transcript_content)
+        except Exception as e:
+            self.logger.error(f"Failed to open prompt builder for {video_id}: {e}")
+            messagebox.showerror("Error", f"Could not open transcript file: {e}", parent=self.root)
