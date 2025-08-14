@@ -39,6 +39,9 @@ except ImportError:
         def add_winner(self, *_, **__): return False
         def get_winner_by_id(self, *_, **__): return None
         def add_folder(self, *_, **__): return False
+        def rename_folder(self, *_, **__): return False
+        def remove_folder(self, *_, **__): return False
+        def update_winner(self, *_, **__): return False
 
 
 class MainWindow:
