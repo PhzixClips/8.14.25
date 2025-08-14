@@ -353,7 +353,6 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
-        tree.column('original_title', width=0, stretch=False)
         return tree
 
     def _create_library_treeview(self) -> ttk.Treeview:
