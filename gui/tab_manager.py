@@ -165,10 +165,11 @@ from data.winners_manager import WinnersManager
 class TabManager:
     """Manages multiple search tabs"""
 
-    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager):
+    def __init__(self, parent: tk.Widget, tree_container: tk.Widget, winners_manager: WinnersManager, on_tab_switch: callable = None):
         self.parent = parent
         self.tree_container = tree_container
         self.winners_manager = winners_manager
+        self.on_tab_switch = on_tab_switch
         self.tabs: Dict[str, TabData] = {}
         self.active_tab_id: Optional[str] = None
         self.tab_counter = 0
@@ -541,6 +542,9 @@ class TabManager:
                 active_tab.close_button.config(bg=COLORS['bg_accent'])
 
         self.active_tab_id = tab_id
+
+        if self.on_tab_switch:
+            self.on_tab_switch(active_tab)
 
     def update_tab_status(self, tab_id: str, status_text: str, status_type: str = 'idle'):
         if tab_id not in self.tabs:

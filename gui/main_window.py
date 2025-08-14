@@ -85,6 +85,8 @@ class MainWindow:
         self.status_message_label = None
         self.undo_button = None
         self.status_job = None
+        self.url_frame = None
+        self.search_frame = None
 
 
     # -----------------------------
@@ -170,6 +172,8 @@ class MainWindow:
         style.configure('TButton', padding=(10, 6), font=font_sm)
         style.map('TButton', relief=[('pressed', 'sunken'), ('active', 'raised')])
 
+        style.configure('Secondary.TButton', padding=(10, 8)) # Taller for URL bar
+
         # Dark combobox style
         style_name = 'Dark.TCombobox'
         style.configure(
@@ -224,18 +228,33 @@ class MainWindow:
     # Top: URL section
     # -----------------------------
     def _create_url_input(self):
-        url_frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
-        url_frame.pack(fill='x', padx=10, pady=(8, 4))
+        self.url_frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
+        self.url_frame.pack(fill='x', padx=10, pady=(8, 4))
 
-        self.url_label = tk.Label(url_frame, text='🔗 YouTube URL:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_accent', '#fbbf24'))
+        self.url_label = tk.Label(self.url_frame, text='🔗 YouTube URL:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_accent', '#fbbf24'))
         self.url_label.pack(side='left')
 
-        self.url_entry = tk.Entry(url_frame, width=60, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
-        self.url_entry.pack(side='left', padx=8)
+        self.url_entry = tk.Entry(self.url_frame, width=60, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
+        self.url_entry.pack(side='left', padx=8, ipady=4) # ipady to increase height
 
-        ttk.Button(url_frame, text='🎯 Analyze URL', command=self._analyze_url).pack(side='left', padx=6)
+        analyze_button = ttk.Button(self.url_frame, text='Analyze URL', command=self._analyze_url, style="Secondary.TButton")
+        analyze_button.pack(side='left', padx=6)
 
-        tk.Button(url_frame, text='🗑️', bg='#666666', fg=COLORS.get('fg_primary', '#e6e6e6'), command=self._clear_url, width=3).pack(side='left', padx=4)
+        # --- URL Entry Behaviors ---
+        def _update_analyze_button_state(*args):
+            state = 'disabled' if not self.url_entry.get() else 'normal'
+            analyze_button.config(state=state)
+
+        self.url_entry.bind('<KeyRelease>', _update_analyze_button_state)
+        self.url_entry.bind('<Escape>', lambda e: self._clear_url())
+
+        # Right-click menu
+        url_menu = tk.Menu(self.url_frame, tearoff=0)
+        url_menu.add_command(label="Paste", command=lambda: self.url_entry.event_generate('<<Paste>>'))
+        url_menu.add_command(label="Clear", command=self._clear_url)
+        self.url_entry.bind("<Button-3>", lambda e: url_menu.tk_popup(e.x_root, e.y_root))
+
+        _update_analyze_button_state() # Set initial state
 
         separator = tk.Frame(self.root, height=2, bg=COLORS.get('border', '#3a3a3a'))
         separator.pack(fill='x', padx=10, pady=(6, 8))
@@ -244,10 +263,10 @@ class MainWindow:
     # Search controls row
     # -----------------------------
     def _create_search_controls(self):
-        frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
-        frame.pack(fill='x', padx=10, pady=4)
+        self.search_frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
+        self.search_frame.pack(fill='x', padx=10, pady=4)
 
-        self.query_label = tk.Label(frame, text='Search:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
+        self.query_label = tk.Label(self.search_frame, text='Search:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.query_label.pack(side='left')
         self.query_entry = tk.Entry(frame, width=25, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
         self.query_entry.pack(side='left', padx=6)
@@ -283,7 +302,23 @@ class MainWindow:
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager)
+        self.tab_manager = TabManager(self.root, self.tree_container, self.winners_manager, on_tab_switch=self._on_tab_switch)
+
+    def _on_tab_switch(self, tab_data: Optional[dict]):
+        """Callback for when the active tab changes."""
+        is_library_tab = tab_data and tab_data.is_winners_tab
+
+        # Usingwinfo_ismapped() checks if the widget is currently visible
+        if is_library_tab:
+            if self.url_frame.winfo_ismapped():
+                self.url_frame.pack_forget()
+            if self.search_frame.winfo_ismapped():
+                self.search_frame.pack_forget()
+        else:
+            if not self.url_frame.winfo_ismapped():
+                self.url_frame.pack(fill='x', padx=10, pady=(8, 4), before=self.tree_container)
+            if not self.search_frame.winfo_ismapped():
+                self.search_frame.pack(fill='x', padx=10, pady=4, before=self.tree_container)
 
     # -----------------------------
     # Bottom action buttons
@@ -300,12 +335,13 @@ class MainWindow:
             ('Download', '#3B82F6', self._download_video),
             ('Transcribe', '#7C3AED', self._transcribe_video),
             ('Find Raw', '#A16207', self._find_raw_source),
-            ('🏆 Save to Library', '#FFD700', self._save_to_winners),
+            ('Library', '#FFD700', self._save_to_winners),
             ('Open Folder', '#222', self._open_clip_folder)
         ]
 
         for text, color, command in buttons:
-            btn = tk.Button(left_frame, text=text, bg=color, fg=('#000' if text.startswith('🏆') else COLORS.get('fg_on_accent', '#ffffff')), command=command, padx=10, pady=6, relief='flat', bd=0)
+            is_primary = text == 'Library'
+            btn = tk.Button(left_frame, text=text, bg=color, fg=('#000' if is_primary else COLORS.get('fg_on_accent', '#ffffff')), command=command, padx=10, pady=6, relief='flat', bd=0)
             btn.pack(side='left', padx=6)
             self.action_buttons[text] = btn
 
@@ -319,7 +355,7 @@ class MainWindow:
         left_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
         left_frame.pack(side='left')
 
-        self.winners_counter_label = tk.Label(left_frame, text='Library: 0', fg='#FFD700', bg=COLORS.get('bg_primary', '#16181d'))
+        self.winners_counter_label = tk.Label(left_frame, text='Library • 0 items', fg='#FFD700', bg=COLORS.get('bg_primary', '#16181d'))
         self.winners_counter_label.pack(side='left', padx=(0, 18))
 
         self.status_message_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
@@ -349,8 +385,8 @@ class MainWindow:
 
     def _update_save_button_text(self):
         """Updates the 'Save to Library' button text with the last/default folder."""
-        if '🏆 Save to Library' in self.action_buttons:
-            button = self.action_buttons['🏆 Save to Library']
+        if 'Library' in self.action_buttons:
+            button = self.action_buttons['Library']
 
             last_folder = settings_manager.get('save_last_used_folder', 'Default')
             if not settings_manager.get('save_remember_last_folder'):
@@ -365,7 +401,7 @@ class MainWindow:
             winners_tab_id = self.tab_manager.create_winners_tab()
             self._load_winners_to_tab()
             winner_count = self.winners_manager.get_winner_count()
-            self.winners_counter_label.config(text=f'Library: {winner_count}')
+            self.winners_counter_label.config(text=f'Library • {winner_count} items')
             self.tab_manager.update_tab_status(
                 winners_tab_id,
                 f"{winner_count} saved",
@@ -433,7 +469,7 @@ class MainWindow:
                 self._load_winners_to_tab()
 
                 winner_count = self.winners_manager.get_winner_count()
-                self.winners_counter_label.config(text=f'Library: {winner_count}')
+                self.winners_counter_label.config(text=f'Library • {winner_count} items')
 
                 winners_tab_id = self.tab_manager.winners_tab_id
                 if winners_tab_id:
@@ -447,7 +483,7 @@ class MainWindow:
                             self._pulse_winners_counter()
                             self._load_winners_to_tab()
                             winner_count = self.winners_manager.get_winner_count()
-                            self.winners_counter_label.config(text=f'Library: {winner_count}')
+                            self.winners_counter_label.config(text=f'Library • {winner_count} items')
                             self._clear_status_message()
                             self._set_status_message("Save undone.", None)
 
