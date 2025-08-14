@@ -17,7 +17,7 @@ class TabData:
     tab_id: str
     frame: tk.Frame
     label: tk.Label
-    status_label: tk.Label
+    status_label: Optional[tk.Label]
     close_button: Optional[tk.Button]
     tree: ttk.Treeview
     search_term: str
@@ -242,24 +242,18 @@ class TabManager:
             return self.winners_tab_id
 
         tab_id = "winners_tab"
-        display_name = "🏆 Library"
+        display_name = "Library"
 
-        tab_frame = tk.Frame(self.tabs_container, bg='#FFD700', relief='solid', bd=2)
+        tab_frame = tk.Frame(self.tabs_container, bg='#FFD700', relief='solid', bd=2, width=120, height=40)
+        tab_frame.pack_propagate(False)
 
         tab_label = tk.Label(
             tab_frame, text=display_name, bg='#FFD700', fg='#000000',
-            font=('Segoe UI', 9, 'bold'), padx=12, pady=8
+            font=('Segoe UI', 11, 'bold')
         )
-        tab_label.pack(side='left')
-
-        status_label = tk.Label(
-            tab_frame, text="", bg='#FFD700', fg='#000000',
-            font=('Segoe UI', 8, 'bold'), padx=4
-        )
-        status_label.pack(side='left')
+        tab_label.pack(fill='both', expand=True)
 
         close_button = None
-        # Create a container for the filter and the tree
         library_container = tk.Frame(self.tree_container, bg=COLORS.get('bg_primary'))
 
         filter_frame = tk.Frame(library_container, bg=COLORS.get('bg_primary'))
@@ -274,10 +268,10 @@ class TabManager:
         tree = self._create_winners_treeview(library_container)
         tree.pack(side='bottom', fill='both', expand=True)
 
-        self._bind_winners_tab_events(tab_frame, tab_label, status_label, tab_id)
+        self._bind_winners_tab_events(tab_frame, tab_label, tab_id)
 
         tab_data = TabData(
-            tab_id=tab_id, frame=tab_frame, label=tab_label, status_label=status_label,
+            tab_id=tab_id, frame=tab_frame, label=tab_label, status_label=None,
             close_button=close_button, tree=tree, search_term="Library",
             results=[], status_text='idle', tooltip_data={}, is_winners_tab=True,
             container=library_container, folder_filter_combo=folder_filter_combo
@@ -455,8 +449,7 @@ class TabManager:
         close_button.bind("<Enter>", on_close_enter)
         close_button.bind("<Leave>", on_close_leave)
 
-    def _bind_winners_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,
-                                 status_label: tk.Label, tab_id: str):
+    def _bind_winners_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label, tab_id: str):
         def on_tab_click(event=None):
             self.switch_to_tab(tab_id)
 
@@ -550,6 +543,9 @@ class TabManager:
         if tab_id not in self.tabs:
             return
         tab_data = self.tabs[tab_id]
+        if not tab_data.status_label:
+            return
+
         tab_data.status_text = status_type
 
         colors = {
