@@ -273,7 +273,7 @@ class MainWindow:
 
         self.uploaded_label = tk.Label(self.search_frame, text='Uploaded:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.uploaded_label.pack(side='left', padx=(12, 0))
-        self.date_combo = ttk.Combobox(self.search_frame, values=['Any', '24h', '2d', '7d'], width=5, state="readonly")
+        self.date_combo = ttk.Combobox(self.search_frame, values=['Any', '24h', '2d', '7d'], width=5, state="readonly", style=self.combobox_style)
         self.date_combo.set('Any')
         self.date_combo.pack(side='left', padx=6)
 
