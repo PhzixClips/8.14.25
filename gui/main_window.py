@@ -26,16 +26,16 @@ from gui.components import (
 )
 from utils.logging import Logger
 
-# Winners (fallback if module not present)
+# Library (fallback if module not present)
 try:
-    from data.winners_manager import WinnersManager
+    from data.library_manager import LibraryManager
 except ImportError:
-    class WinnersManager:
-        def __init__(self, *_, **__): self.winners=[]
-        def get_winner_count(self): return 0
+    class LibraryManager:
+        def __init__(self, *_, **__): self.items=[]
+        def get_item_count(self): return 0
         def get_all_folders(self): return ["Default"]
-        def add_winner(self, *_, **__): return False
-        def get_winner_by_id(self, *_, **__): return None
+        def add_item(self, *_, **__): return False
+        def get_item_by_id(self, *_, **__): return None
         def add_folder(self, *_, **__): return False
 
 
@@ -47,7 +47,7 @@ class MainWindow:
 
         # Initialize components
         self.search_engine = SearchEngine()
-        self.winners_manager = WinnersManager()
+        self.library_manager = LibraryManager()
         self.media_processor = MediaProcessor()
 
         # UI components
@@ -62,6 +62,12 @@ class MainWindow:
         # --- Widget references for dynamic updates ---
         self.url_label = None
         self.url_entry = None
+
+        # Search & Filter Frames
+        self.dynamic_controls_frame = None
+        self.search_controls_frame = None
+        self.winners_filter_frame = None
+
         self.query_label = None
         self.query_entry = None
         self.uploaded_label = None
@@ -73,9 +79,15 @@ class MainWindow:
         self.max_duration_label = None
         self.max_duration_entry = None
         self.generate_button = None
+
+        # Library Filter Widgets
+        self.folder_filter_label = None
+        self.folder_filter_combo = None
+
         self.action_buttons = {}
-        self.winners_counter_label = None
+        self.library_counter_label = None
         self.tab_counter_label = None
+        self.library_actions_frame = None
 
 
     # -----------------------------
@@ -98,7 +110,14 @@ class MainWindow:
 
         # Create main components
         self._create_url_input()
+
+        # Create a container for the controls that will be swapped
+        self.dynamic_controls_frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
+        self.dynamic_controls_frame.pack(fill='x', padx=0, pady=0)
+
         self._create_search_controls()
+        self._create_winners_filter_controls()
+        self._create_library_action_controls()
         self._create_tab_system()
         self._create_action_buttons()
         self._create_status_bar()
@@ -106,8 +125,9 @@ class MainWindow:
         # Apply settings (styles, fonts, colors)
         self._apply_live_settings()
 
-        # Initialize Winners tab and load data
-        self._initialize_winners_tab()
+        # Initialize Library tab and load data
+        self._initialize_library_tab()
+        self._update_folder_filter_options()
 
         # Initial results tab
         self.tab_manager.add_new_tab("Search Results")
@@ -202,13 +222,17 @@ class MainWindow:
         if self.max_duration_entry: self.max_duration_entry.config(font=font_sm)
         if self.generate_button: self.generate_button.config(font=font_base_bold)
 
+        # Library Filter
+        if hasattr(self, 'folder_filter_label') and self.folder_filter_label:
+            self.folder_filter_label.config(font=font_sm)
+
         # Action Buttons
         for text, button in self.action_buttons.items():
-            is_winner_btn = text.startswith('🏆')
-            button.config(font=font_sm_bold if is_winner_btn else font_sm)
+            is_library_btn = text.startswith('📚') or text.startswith('🏆')
+            button.config(font=font_sm_bold if is_library_btn else font_sm)
 
         # Status Bar
-        if self.winners_counter_label: self.winners_counter_label.config(font=font_sm_bold)
+        if self.library_counter_label: self.library_counter_label.config(font=font_sm_bold)
         if self.tab_counter_label: self.tab_counter_label.config(font=font_sm)
 
     # -----------------------------
@@ -235,8 +259,11 @@ class MainWindow:
     # Search controls row
     # -----------------------------
     def _create_search_controls(self):
-        frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
-        frame.pack(fill='x', padx=10, pady=4)
+        # Note: parent is now self.dynamic_controls_frame
+        self.search_controls_frame = tk.Frame(self.dynamic_controls_frame, bg=COLORS.get('bg_primary', '#16181d'))
+        # This frame is packed by default
+        self.search_controls_frame.pack(fill='x', padx=10, pady=4)
+        frame = self.search_controls_frame
 
         self.query_label = tk.Label(frame, text='Search:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.query_label.pack(side='left')
@@ -268,13 +295,49 @@ class MainWindow:
         self.generate_button = tk.Button(frame, text='Generate', bg=COLORS.get('success', 'green'), fg=COLORS.get('fg_on_accent', '#ffffff'), command=self._start_search)
         self.generate_button.pack(side='left', padx=10)
 
+    def _create_winners_filter_controls(self):
+        """Creates the dropdown for filtering winners by folder."""
+        # Note: parent is now self.dynamic_controls_frame
+        self.winners_filter_frame = tk.Frame(self.dynamic_controls_frame, bg=COLORS.get('bg_primary', '#16181d'))
+        # This frame is NOT packed by default, it will be packed on tab switch
+
+        self.folder_filter_label = tk.Label(self.winners_filter_frame, text='Filter by Folder:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
+        self.folder_filter_label.pack(side='left', padx=(10, 0))
+
+        self.folder_filter_combo = ttk.Combobox(self.winners_filter_frame, values=['All'], width=20, state="readonly")
+        self.folder_filter_combo.set('All')
+        self.folder_filter_combo.pack(side='left', padx=6)
+        self.folder_filter_combo.bind('<<ComboboxSelected>>', self._on_folder_filter_changed)
+
+    def _create_library_action_controls(self):
+        """Creates the buttons for library management."""
+        self.library_actions_frame = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
+
+        buttons = [
+            ("Rename Item", self._rename_library_item),
+            ("Move Item", self._move_library_item),
+            ("Delete Item", self._delete_library_item),
+            ("New Folder", self._add_folder),
+            ("Rename Folder", self._rename_folder),
+            ("Delete Folder", self._delete_folder),
+        ]
+
+        for text, command in buttons:
+            btn = ttk.Button(self.library_actions_frame, text=text, command=command)
+            btn.pack(side='left', padx=5, pady=5)
+
+        # This frame is hidden by default
+        self.library_actions_frame.pack(fill='x', padx=10, pady=4)
+        self.library_actions_frame.pack_forget()
+
+
     # -----------------------------
     # Tabs + results table
     # -----------------------------
     def _create_tab_system(self):
         self.tree_container = tk.Frame(self.root, bg=COLORS.get('bg_primary', '#16181d'))
         self.tree_container.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_manager = TabManager(self.root, self.tree_container)
+        self.tab_manager = TabManager(self.root, self.tree_container, on_tab_switch_callback=self._on_tab_switched)
 
     # -----------------------------
     # Bottom action buttons
@@ -291,12 +354,12 @@ class MainWindow:
             ('Download', '#3B82F6', self._download_video),
             ('Transcribe', '#7C3AED', self._transcribe_video),
             ('Find Raw', '#A16207', self._find_raw_source),
-            ('🏆 Save to Winners', '#FFD700', self._save_to_winners),
+            ('📚 Save to Library', '#FFD700', self._save_to_library),
             ('Open Folder', '#222', self._open_clip_folder)
         ]
 
         for text, color, command in buttons:
-            btn = tk.Button(left_frame, text=text, bg=color, fg=('#000' if text.startswith('🏆') else COLORS.get('fg_on_accent', '#ffffff')), command=command, padx=10, pady=6, relief='flat', bd=0)
+            btn = tk.Button(left_frame, text=text, bg=color, fg=('#000' if text.startswith('📚') else COLORS.get('fg_on_accent', '#ffffff')), command=command, padx=10, pady=6, relief='flat', bd=0)
             btn.pack(side='left', padx=6)
             self.action_buttons[text] = btn
 
@@ -310,8 +373,8 @@ class MainWindow:
         left_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
         left_frame.pack(side='left')
 
-        self.winners_counter_label = tk.Label(left_frame, text='Winners: 0', fg='#FFD700', bg=COLORS.get('bg_primary', '#16181d'))
-        self.winners_counter_label.pack(side='left', padx=(0, 18))
+        self.library_counter_label = tk.Label(left_frame, text='Library: 0', fg='#FFD700', bg=COLORS.get('bg_primary', '#16181d'))
+        self.library_counter_label.pack(side='left', padx=(0, 18))
 
         right_frame = tk.Frame(status_frame, bg=COLORS.get('bg_primary', '#16181d'))
         right_frame.pack(side='right', padx=10)
@@ -334,64 +397,211 @@ class MainWindow:
         messagebox.showinfo("Settings Updated", "Live settings applied. A restart is recommended for all changes to take full effect.", parent=self.root)
         self._apply_live_settings()
 
+    def _rename_library_item(self):
+        selected_item = self.tab_manager.get_selected_video()
+        if not selected_item:
+            messagebox.showinfo("Rename", "Please select an item to rename.")
+            return
+
+        video_id = selected_item.get('video_id')
+        current_title = selected_item.get('display_title', selected_item.get('title', ''))
+
+        new_title = simpledialog.askstring("Rename Item", "Enter new display title:", initialvalue=current_title)
+
+        if new_title and new_title.strip() != current_title:
+            if self.library_manager.rename_item(video_id, new_title):
+                self._refresh_library_view()
+            else:
+                messagebox.showerror("Error", "Failed to rename item.")
+
+    def _move_library_item(self):
+        selected_item = self.tab_manager.get_selected_video()
+        if not selected_item:
+            messagebox.showinfo("Move Item", "Please select an item to move.")
+            return
+
+        video_id = selected_item.get('video_id')
+        folders = self.library_manager.get_all_folders()
+
+        # You can't move an item to the folder it's already in
+        current_folder = selected_item.get('folder', 'Default')
+        if current_folder in folders:
+            folders.remove(current_folder)
+
+        if not folders:
+            messagebox.showinfo("Move Item", "No other folders to move to.")
+            return
+
+        folder_choice = self._show_folder_selection_dialog(folders)
+        if folder_choice:
+            if self.library_manager.move_item_to_folder(video_id, folder_choice):
+                self._refresh_library_view()
+            else:
+                messagebox.showerror("Error", "Failed to move item.")
+
+    def _delete_library_item(self):
+        selected_item = self.tab_manager.get_selected_video()
+        if not selected_item:
+            messagebox.showinfo("Delete", "Please select an item to delete.")
+            return
+
+        video_id = selected_item.get('video_id')
+        title = selected_item.get('display_title', selected_item.get('title', ''))
+
+        if messagebox.askyesno("Delete Item", f"Are you sure you want to delete '{title}'?"):
+            if self.library_manager.remove_item(video_id):
+                self._refresh_library_view()
+            else:
+                messagebox.showerror("Error", "Failed to delete item.")
+
+    def _add_folder(self):
+        new_folder = simpledialog.askstring("New Folder", "Enter new folder name:")
+        if new_folder and new_folder.strip():
+            if self.library_manager.add_folder(new_folder.strip()):
+                self._refresh_library_view()
+            else:
+                messagebox.showerror("Error", "Folder already exists or is invalid.")
+
+    def _rename_folder(self):
+        selected_folder = self.folder_filter_combo.get()
+        if not selected_folder or selected_folder == "All":
+            messagebox.showinfo("Rename Folder", "Please select a folder from the dropdown to rename.")
+            return
+
+        new_name = simpledialog.askstring("Rename Folder", f"Enter new name for '{selected_folder}':", initialvalue=selected_folder)
+        if new_name and new_name.strip() != selected_folder:
+            if self.library_manager.rename_folder(selected_folder, new_name.strip()):
+                self._refresh_library_view()
+                self.folder_filter_combo.set(new_name.strip())
+            else:
+                messagebox.showerror("Error", "Failed to rename folder. The new name may already exist.")
+
+    def _delete_folder(self):
+        selected_folder = self.folder_filter_combo.get()
+        if not selected_folder or selected_folder == "All":
+            messagebox.showinfo("Delete Folder", "Please select a folder from the dropdown to delete.")
+            return
+
+        if selected_folder == "Default":
+            messagebox.showerror("Error", "Cannot delete the 'Default' folder.")
+            return
+
+        if messagebox.askyesno("Delete Folder", f"Are you sure you want to delete the folder '{selected_folder}'?\nAll items inside will be moved to 'Default'."):
+            if self.library_manager.remove_folder(selected_folder):
+                self._refresh_library_view()
+            else:
+                messagebox.showerror("Error", "Failed to delete folder.")
+
+    def _refresh_library_view(self):
+        """Refreshes the library view to show the latest data."""
+        self._on_folder_filter_changed() # This reloads the items based on the current filter
+        self._update_folder_filter_options() # This updates the list of folders in the dropdown
+
+    def _on_folder_filter_changed(self, event=None):
+        """Callback for when the folder filter dropdown changes."""
+        selected_folder = self.folder_filter_combo.get()
+        library_tab = self.tab_manager.get_library_tab()
+        if not library_tab:
+            return
+
+        self.tab_manager.clear_tab_results(library_tab.tab_id)
+
+        if selected_folder == "All":
+            items_to_display = self.library_manager.items
+        else:
+            items_to_display = self.library_manager.get_items_by_folder(selected_folder)
+
+        for item in items_to_display:
+            self.tab_manager.add_item_to_library_tab(item.to_dict())
+
+    def _on_tab_switched(self, tab_id: str):
+        """Callback for when the active tab changes."""
+        is_library = tab_id == self.tab_manager.library_tab_id
+
+        # Forget all dynamic frames first to ensure a clean slate
+        if self.search_controls_frame:
+            self.search_controls_frame.pack_forget()
+        if self.winners_filter_frame:
+            self.winners_filter_frame.pack_forget()
+        if self.library_actions_frame:
+            self.library_actions_frame.pack_forget()
+
+        # Now, pack the correct one(s)
+        if is_library:
+            if self.winners_filter_frame:
+                self.winners_filter_frame.pack(fill='x', padx=10, pady=4)
+            if self.library_actions_frame:
+                self.library_actions_frame.pack(fill='x', padx=10, pady=0)
+        else:
+            if self.search_controls_frame:
+                self.search_controls_frame.pack(fill='x', padx=10, pady=4)
+
+    def _update_folder_filter_options(self):
+        """Updates the folder filter dropdown with the latest folder list."""
+        if not hasattr(self, 'folder_filter_combo') or not self.folder_filter_combo:
+            return
+        folders = ["All"] + self.library_manager.get_all_folders()
+        self.folder_filter_combo['values'] = folders
+        self.folder_filter_combo.set("All")
+
     # --- The rest of the file remains the same ---
-    def _initialize_winners_tab(self):
+    def _initialize_library_tab(self):
         try:
-            winners_tab_id = self.tab_manager.create_winners_tab()
-            self._load_winners_to_tab()
-            winner_count = self.winners_manager.get_winner_count()
-            self.winners_counter_label.config(text=f'Winners: {winner_count}')
+            library_tab_id = self.tab_manager.create_library_tab()
+            self._load_library_items_to_tab()
+            item_count = self.library_manager.get_item_count()
+            self.library_counter_label.config(text=f'Library: {item_count}')
             self.tab_manager.update_tab_status(
-                winners_tab_id,
-                f"{winner_count} saved",
-                'complete' if winner_count > 0 else 'idle'
+                library_tab_id,
+                f"{item_count} saved",
+                'complete' if item_count > 0 else 'idle'
             )
         except Exception as e:
-            self.logger.error(f"Error initializing winners tab: {e}")
+            self.logger.error(f"Error initializing library tab: {e}")
 
-    def _load_winners_to_tab(self):
+    def _load_library_items_to_tab(self):
         try:
-            winners_tab = self.tab_manager.get_winners_tab()
-            if not winners_tab:
+            library_tab = self.tab_manager.get_library_tab()
+            if not library_tab:
                 return
-            self.tab_manager.clear_tab_results(winners_tab.tab_id)
-            for winner in self.winners_manager.winners:
-                self.tab_manager.add_winner_to_tab(winner.to_dict())
+            self.tab_manager.clear_tab_results(library_tab.tab_id)
+            for item in self.library_manager.items:
+                self.tab_manager.add_item_to_library_tab(item.to_dict())
         except Exception as e:
-            self.logger.error(f"Error loading winners to tab: {e}")
+            self.logger.error(f"Error loading library items to tab: {e}")
 
-    def _save_to_winners(self):
+    def _save_to_library(self):
         try:
             video = self.tab_manager.get_selected_video()
             if not video:
-                messagebox.showinfo('Save to Winners', 'Please select a video first.')
+                messagebox.showinfo('Save to Library', 'Please select a video first.')
                 return
 
             video_id = video.get('video_id', '')
-            if self.winners_manager.get_winner_by_id(video_id):
+            if self.library_manager.get_item_by_id(video_id):
                 messagebox.showwarning('Already Saved', 'This video is already in your Winners!')
                 return
 
-            folders = self.winners_manager.get_all_folders()
+            folders = self.library_manager.get_all_folders()
             folder_choice = self._show_folder_selection_dialog(folders)
             if folder_choice is None:
                 return
 
-            success = self.winners_manager.add_winner(video, folder_choice)
+            success = self.library_manager.add_item(video, folder_choice)
             if success:
-                winner = self.winners_manager.get_winner_by_id(video_id)
-                if winner:
-                    self.tab_manager.add_winner_to_tab(winner.to_dict())
-                winner_count = self.winners_manager.get_winner_count()
-                self.winners_counter_label.config(text=f'Winners: {winner_count}')
-                winners_tab_id = self.tab_manager.winners_tab_id
-                if winners_tab_id:
-                    self.tab_manager.update_tab_status(winners_tab_id, f"{winner_count} saved", 'complete')
+                item = self.library_manager.get_item_by_id(video_id)
+                if item:
+                    self.tab_manager.add_item_to_library_tab(item.to_dict())
+                item_count = self.library_manager.get_item_count()
+                self.library_counter_label.config(text=f'Library: {item_count}')
+                library_tab_id = self.tab_manager.library_tab_id
+                if library_tab_id:
+                    self.tab_manager.update_tab_status(library_tab_id, f"{item_count} saved", 'complete')
                 messagebox.showinfo('Success', f'Video saved to Winners in "{folder_choice}" folder!')
             else:
                 messagebox.showerror('Error', 'Failed to save video to Winners.')
         except Exception as e:
-            self.logger.error(f"Error saving to winners: {e}")
+            self.logger.error(f"Error saving to library: {e}")
             messagebox.showerror('Error', f'Error saving to winners: {e}')
 
     def _show_folder_selection_dialog(self, folders: list) -> Optional[str]:
@@ -413,7 +623,7 @@ class MainWindow:
 
             tk.Label(
                 dialog,
-                text='Choose folder for this winner:',
+                text='Choose folder for this item:',
                 bg=COLORS.get('bg_primary', '#16181d'),
                 fg=COLORS.get('fg_accent', '#fbbf24'),
                 font=(UI_FONT_FAMILY, UI_FONT_SIZES['lg'], 'bold')
