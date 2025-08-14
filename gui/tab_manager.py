@@ -168,7 +168,7 @@ class TabManager:
         self.active_tab_id: Optional[str] = None
         self.tab_counter = 0
         self.tooltip = Tooltip()
-        self.winners_tab_id: Optional[str] = None
+        self.library_tab_id: Optional[str] = None
 
         self._create_tab_container()
 
@@ -231,12 +231,12 @@ class TabManager:
         self.tab_counter += 1
         return f"tab_{self.tab_counter}"
 
-    def create_winners_tab(self) -> str:
-        if self.winners_tab_id:
-            return self.winners_tab_id
+    def create_library_tab(self) -> str:
+        if self.library_tab_id:
+            return self.library_tab_id
 
-        tab_id = "winners_tab"
-        display_name = "🏆 Winners"
+        tab_id = "library_tab"
+        display_name = "📚 Library"
 
         tab_frame = tk.Frame(self.tabs_container, bg='#FFD700', relief='solid', bd=2)
 
@@ -253,17 +253,17 @@ class TabManager:
         status_label.pack(side='left')
 
         close_button = None
-        tree = self._create_winners_treeview()
-        self._bind_winners_tab_events(tab_frame, tab_label, status_label, tab_id)
+        tree = self._create_library_treeview()
+        self._bind_library_tab_events(tab_frame, tab_label, status_label, tab_id)
 
         tab_data = TabData(
             tab_id=tab_id, frame=tab_frame, label=tab_label, status_label=status_label,
-            close_button=close_button, tree=tree, search_term="Winners",
+            close_button=close_button, tree=tree, search_term="Library",
             results=[], status_text='idle', tooltip_data={}, is_winners_tab=True
         )
 
         self.tabs[tab_id] = tab_data
-        self.winners_tab_id = tab_id
+        self.library_tab_id = tab_id
         self._bind_tree_tooltip(tree, tab_id)
         tab_frame.pack(side='left', fill='y', padx=2, pady=2)
 
@@ -353,10 +353,11 @@ class TabManager:
             tree.column(col, anchor='center', width=column_widths[col])
 
         tree.column('video_id', width=0, stretch=False)
+        tree.column('original_title', width=0, stretch=False)
         return tree
 
-    def _create_winners_treeview(self) -> ttk.Treeview:
-        columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder', 'video_id')
+    def _create_library_treeview(self) -> ttk.Treeview:
+        columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder', 'video_id', 'original_title')
         display_columns = ('Title', 'Score', 'Views', 'Likes', 'L/V Ratio', 'VPH', 'Duration', 'Date Saved', 'Folder')
 
         tree = ttk.Treeview(self.parent, columns=columns, show='headings', displaycolumns=display_columns)
@@ -432,7 +433,7 @@ class TabManager:
         close_button.bind("<Enter>", on_close_enter)
         close_button.bind("<Leave>", on_close_leave)
 
-    def _bind_winners_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,
+    def _bind_library_tab_events(self, tab_frame: tk.Frame, tab_label: tk.Label,
                                  status_label: tk.Label, tab_id: str):
         def on_tab_click(event=None):
             self.switch_to_tab(tab_id)
@@ -462,7 +463,7 @@ class TabManager:
         bind_tooltip(tree, self.tooltip, get_tooltip_text)
 
     def close_tab(self, tab_id: str):
-        if tab_id == self.winners_tab_id:
+        if tab_id == self.library_tab_id:
             return
         if len(self.tabs) <= 1:
             messagebox.showwarning("Cannot Close", "Cannot close the last tab!")
@@ -473,8 +474,8 @@ class TabManager:
             tab_data.tree.destroy()
             del self.tabs[tab_id]
             if self.active_tab_id == tab_id:
-                if self.winners_tab_id and self.winners_tab_id in self.tabs:
-                    self.switch_to_tab(self.winners_tab_id)
+                if self.library_tab_id and self.library_tab_id in self.tabs:
+                    self.switch_to_tab(self.library_tab_id)
                 else:
                     first_tab_id = next(iter(self.tabs.keys()))
                     self.switch_to_tab(first_tab_id)
@@ -536,9 +537,9 @@ class TabManager:
             return self.tabs[self.active_tab_id]
         return None
 
-    def get_winners_tab(self) -> Optional[TabData]:
-        if self.winners_tab_id and self.winners_tab_id in self.tabs:
-            return self.tabs[self.winners_tab_id]
+    def get_library_tab(self) -> Optional[TabData]:
+        if self.library_tab_id and self.library_tab_id in self.tabs:
+            return self.tabs[self.library_tab_id]
         return None
 
     def get_tab_count(self) -> int:
@@ -580,39 +581,40 @@ class TabManager:
         tab_data.tooltip_data[item_id] = video_data.get('repost_reason', '')
         tab_data.results.append(video_data)
 
-    def add_winner_to_tab(self, winner_data: Dict):
-        if not self.winners_tab_id or self.winners_tab_id not in self.tabs:
+    def add_item_to_library_tab(self, item_data: Dict):
+        if not self.library_tab_id or self.library_tab_id not in self.tabs:
             return
-        tab_data = self.tabs[self.winners_tab_id]
+        tab_data = self.tabs[self.library_tab_id]
 
-        indicator = '🟢' if not winner_data.get('repost_flag') else '🔴'
-        title_display = f"{indicator} {winner_data.get('title', '')}"
-        score_display = winner_data.get('viral_score', 'N/A')
+        indicator = '🟢' if not item_data.get('repost_flag') else '🔴'
+        title_display = f"{indicator} {item_data.get('display_title', item_data.get('title', ''))}"
+        score_display = item_data.get('viral_score', 'N/A')
         if score_display != 'N/A':
             score_display = f"{score_display:.3f}"
 
-        ratio_display = _format_percentage(winner_data.get('ratio'), 1)
+        ratio_display = _format_percentage(item_data.get('ratio'), 1)
 
         item_id = tab_data.tree.insert('', 'end', values=(
             title_display,
             score_display,
-            winner_data.get('views', 0),
-            winner_data.get('likes', 0),
+            item_data.get('views', 0),
+            item_data.get('likes', 0),
             ratio_display,
-            winner_data.get('vph', 0),
-            winner_data.get('duration', '00:00'),
-            winner_data.get('date_saved', ''),
-            winner_data.get('folder', 'Default'),
-            winner_data.get('video_id', '')
+            item_data.get('vph', 0),
+            item_data.get('duration', '00:00'),
+            item_data.get('date_saved', ''),
+            item_data.get('folder', 'Default'),
+            item_data.get('video_id', ''),
+            item_data.get('title', '')
         ))
 
-        tab_data.tooltip_data[item_id] = winner_data.get('repost_reason', '')
-        tab_data.results.append(winner_data)
+        tab_data.tooltip_data[item_id] = item_data.get('repost_reason', '')
+        tab_data.results.append(item_data)
 
-    def remove_winner_from_tab(self, video_id: str):
-        if not self.winners_tab_id or self.winners_tab_id not in self.tabs:
+    def remove_item_from_library_tab(self, video_id: str):
+        if not self.library_tab_id or self.library_tab_id not in self.tabs:
             return
-        tab_data = self.tabs[self.winners_tab_id]
+        tab_data = self.tabs[self.library_tab_id]
 
         for item in tab_data.tree.get_children():
             if tab_data.tree.set(item, 'video_id') == video_id:
