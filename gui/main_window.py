@@ -268,32 +268,32 @@ class MainWindow:
 
         self.query_label = tk.Label(self.search_frame, text='Search:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.query_label.pack(side='left')
-        self.query_entry = tk.Entry(frame, width=25, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
+        self.query_entry = tk.Entry(self.search_frame, width=25, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
         self.query_entry.pack(side='left', padx=6)
 
-        self.uploaded_label = tk.Label(frame, text='Uploaded:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
+        self.uploaded_label = tk.Label(self.search_frame, text='Uploaded:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.uploaded_label.pack(side='left', padx=(12, 0))
-        self.date_combo = ttk.Combobox(frame, values=['Any', '24h', '2d', '7d'], width=5, state="readonly")
+        self.date_combo = ttk.Combobox(self.search_frame, values=['Any', '24h', '2d', '7d'], width=5, state="readonly")
         self.date_combo.set('Any')
         self.date_combo.pack(side='left', padx=6)
 
-        self.count_label = tk.Label(frame, text='Count:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
+        self.count_label = tk.Label(self.search_frame, text='Count:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.count_label.pack(side='left', padx=(12, 0))
-        self.count_entry = tk.Entry(frame, width=6, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
+        self.count_entry = tk.Entry(self.search_frame, width=6, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
         self.count_entry.insert(0, "50")
         self.count_entry.pack(side='left', padx=6)
 
-        self.vph_label = tk.Label(frame, text='Min VPH:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
+        self.vph_label = tk.Label(self.search_frame, text='Min VPH:', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.vph_label.pack(side='left', padx=(12, 0))
-        self.vph_entry = tk.Entry(frame, width=6, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
+        self.vph_entry = tk.Entry(self.search_frame, width=6, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
         self.vph_entry.pack(side='left', padx=6)
 
-        self.max_duration_label = tk.Label(frame, text='Max Duration (s):', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
+        self.max_duration_label = tk.Label(self.search_frame, text='Max Duration (s):', bg=COLORS.get('bg_primary', '#16181d'), fg=COLORS.get('fg_primary', '#e6e6e6'))
         self.max_duration_label.pack(side='left', padx=(12, 0))
-        self.max_duration_entry = tk.Entry(frame, width=6, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
+        self.max_duration_entry = tk.Entry(self.search_frame, width=6, bg=COLORS.get('bg_secondary', '#1f232a'), fg=COLORS.get('fg_primary', '#e6e6e6'), insertbackground=COLORS.get('fg_primary', '#e6e6e6'))
         self.max_duration_entry.pack(side='left', padx=6)
 
-        self.generate_button = tk.Button(frame, text='Generate', bg=COLORS.get('success', 'green'), fg=COLORS.get('fg_on_accent', '#ffffff'), command=self._start_search)
+        self.generate_button = tk.Button(self.search_frame, text='Generate', bg=COLORS.get('success', 'green'), fg=COLORS.get('fg_on_accent', '#ffffff'), command=self._start_search)
         self.generate_button.pack(side='left', padx=10)
 
     # -----------------------------
